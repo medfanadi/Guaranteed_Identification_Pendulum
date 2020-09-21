@@ -1,0 +1,147 @@
+%%
+close all
+clear all
+PP=load('Iden_IA_Senario1.txt');
+
+%%
+PP(:,9)=PP(:,9)/5;
+PP(:,10)=PP(:,10)/4;
+%%
+
+plot(PP(:,1),mod(PP(:,9),360),'r','LineWidth',3);
+hold on;
+plot(PP(:,1),mod(PP(:,10),360),'b','LineWidth',3);
+%%
+plot(PP(:,1),PP(:,2),'r','LineWidth',3);
+hold on;
+plot(PP(:,1),PP(:,3),'b','LineWidth',3);
+
+%% Filtrage des données 
+Fs=1/0.016; %fréquence d'échantillonage (hz)
+N=2000;
+G = pi*Fs;
+B = G*firpm(20,[0 0.9],[0 0.9], 'd');
+[H,f] = freqz(B,1,N,Fs);
+figure;
+plot(f,abs(H),'k-',f,2*pi*f,'r--','LineWidth',1);                %                   (20h27)
+%% Application du filtre dérivateur 
+yq1 = filter(B,1,PP(:,9)*(pi/180));
+yq2 = filter(B,1,PP(:,10)*(pi/180));
+figure;
+plot(PP(:,1),yq1,'r','LineWidth',1);
+figure;
+plot(PP(:,1),yq2,'b','LineWidth',1);
+
+%% Application du filtre dérivateur 
+ydq1 = filter(B,1,yq1);
+ydq2 = filter(B,1,yq2);
+figure;
+plot(PP(:,1),ydq1,'r','LineWidth',1);
+figure;
+plot(PP(:,1),ydq2,'b','LineWidth',1);
+
+
+%% Identification
+
+W=zeros(2,9);
+Y=zeros(2,1);
+
+for i=1: length(PP)
+    %q1=filter(b,a,P(i,2));
+    %q2=filter(b,a,P(i,3))+pi;
+    %dq1=filter(b,a,P(i,4));
+    %dq2=filter(b,a,P(i,5));
+    %ddq1=filter(b,a,P(i,6));
+    %ddq2=filter(b,a,P(i,7));
+    %tau=filter(b,a,P(i,8));
+    
+    q1=mod(PP(i,9),360);
+    q2=mod(PP(i,10),360);
+    dq1=yq1(i);
+    dq2=yq2(i);
+    ddq1=ydq1(i);
+    ddq2=ydq2(i);
+    tau=PP(i,8);
+    D=[ddq1*(sin(q2)^2)+2*dq1*dq2*cos(q2)*sin(q2)  ddq1   ddq2*cos(q2)-(dq2^2)*sin(q2) 0        0           dq1 sign(q1) 0      0;
+                 -cos(q2)*sin(q2)*(dq1^2)             0   ddq1*cos(q2)               ddq2     sin(q2)      0    0     dq2 sign(q2)];
+    y=[tau;0];
+    W=[W;D];
+    Y=[Y;y];
+end
+W=W(3:length(W),:);
+Y=Y(3:length(Y),:);
+
+%%
+p=pinv(W)*Y
+
+sprintf('%.15f',p')
+    
+%% Validation 
+Tau=W*p;
+T1= zeros(length(PP),1);
+k=1;
+for j=1:length(Tau)
+   if mod(j,2)== 1
+       T1(k,1)=Tau(j,1);
+       k=k+1;
+   end
+end;
+
+%%
+figure
+    cb1=plot(PP(:,1),0.35*PP(:,8)+0.108,'b-');
+    hold on
+    cb2=plot(PP(:,1),T1(:,1),'r-');
+    set(cb1,'LineWidth',2);
+     set(cb2,'LineWidth',2);
+    Xl=xlabel('t   (en secondes)');
+    tl=title(['couple moteur']);
+    set(tl,'FontSize',18);
+    set(tl,'FontWeight','bold');
+    set(Xl,'FontSize',12);
+    set(gca,'FontSize',14);
+    
+    
+fd = 10;
+fa =15;
+N = 10000;
+Wp = 2*fd/Fs;
+Ws = 2*fa/Fs;
+Rp = 0.1;
+Rs = 50;
+[n,Wn] = buttord(Wp,Ws,3,Rs);   % 3dB attenuation à fd
+[b,a] = butter(8,0.35);
+figure;
+[b1,a1] = butter(5,0.3);
+[b2,a2] = butter(10,0.1);
+cb1=plot(PP(:,1)-PP(58,1),1.1*(0.23*filter(b,a,PP(:,8))+0.128),'k-');
+hold on
+    cb2=plot(PP(:,1)-PP(72,1),1.1*filter(b1,a1,T1(:,1)),'r-');
+    hold on
+    cb3=plot(PP(:,1)-PP(76,1),1.1*(0.225*filter(b2,a2,PP(:,8))+0.1287),'b-');
+    set(cb1,'LineWidth',2);
+    set(cb2,'LineWidth',2);
+    set(cb3,'LineWidth',2);
+    Xl=xlabel('Time [s]');
+    Xll=ylabel('Motor Torque [N.m]');
+    set(tl,'FontSize',18);
+    set(tl,'FontWeight','bold');
+    set(Xl,'FontSize',9,'FontWeight','bold');
+    set(Xll,'FontSize',9,'FontWeight','bold');
+    set(gca,'FontSize',10);
+    grid on;
+    xlim([1,10])
+    ylim([0.17,0.2])
+    legend('measured \tau filtered','Estimated \tau filtered with LSMI','Estimated \tau filtered with IA','FontSize',13);
+s=0; 
+ss=0;
+for i=1:800
+    s=s+(0.23*filter(b,a,PP(i,8))+0.128 -filter(b1,a1,T1(i,1))).^2;
+    ss=ss+(0.23*filter(b,a,PP(i,8))+0.128 -0.225*filter(b2,a2,PP(i,8))+0.1287).^2;
+%     MSE=mean((0.23*filter(b,a,PP(i,8))+0.128 -filter(b1,a1,T1(i,1))).^2)   % Mean Squared Error
+%     RMSE = sqrt(mean((0.23*filter(b,a,PP(i,8))+0.128 -filter(b1,a1,T1(i,1))).^2));  % Root Mean Squared Error
+end
+MSE1=s/800
+RMSE1=sqrt(MSE1)
+MSE2=ss/800
+RMSE2=sqrt(MSE2)
